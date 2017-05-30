@@ -129,7 +129,7 @@ void display(){
         cap >> frame; 
         
         //Transforms frame to compensate for lens distortion based on the calibration matrixes
-        //cv::undistort(distorted_frame, frame, cameraMatrix, distCoeffs);
+        cv::undistort(distorted_frame, frame, cameraMatrix, distCoeffs);
 
         //If space bar is pressed it creates the descriptors for the selected image
         int pressed_key = cv::waitKey(1);
@@ -332,7 +332,7 @@ int main(int ac, char* av[]){
         po::options_description desc("Allowed Options");
         desc.add_options()
                 ("help", "Produce help message")
-                ("display", "Shows a projection of a 3D axis on the board")
+                ("display", "Allows for feature detection")
         ;
 
         po::variables_map vm;
