@@ -121,6 +121,8 @@ void display(){
     bool show_homography = true;
     bool show_axis = true;
     
+    float axis_length = 200.0;
+    
     cv::Mat distorted_frame;
     
     for(;;){
@@ -181,13 +183,19 @@ void display(){
                 std::cout << "Now hiding object visualization" << std::endl;
             }
         }
-        /*
+        else if((pressed_key == 111) && (tracking) && show_axis){//o
+            if(axis_length < 600)
+                axis_length = axis_length + 20;
+        }
+        else if((pressed_key == 108) && (tracking) && show_axis){//l
+            if(axis_length > 20)
+                axis_length = axis_length - 20;
+        }
         //Used to test new keys
         else{
             if(pressed_key != -1)
                 std::cout << pressed_key << std::endl;
         }
-        */
         
         //Compares the taken image against the image that is currently displayed
         if(tracking){
@@ -301,9 +309,9 @@ void display(){
                             std::vector<cv::Point3f> axis;//Vector de Vectores que describe como se debería ver el espacio
                             
                             axis.push_back(cv::Point3f(0, 0, 0));               //Origin
-                            axis.push_back(cv::Point3f(float( 100 ), 0, 0));     //X axis end
-                            axis.push_back(cv::Point3f(0, float( 100 ), 0));     //Y axis end
-                            axis.push_back(cv::Point3f(0, 0, -float( 100 )));     //Z axis end
+                            axis.push_back(cv::Point3f(axis_length, 0, 0));     //X axis end
+                            axis.push_back(cv::Point3f(0, axis_length, 0));     //Y axis end
+                            axis.push_back(cv::Point3f(0, 0, -axis_length));     //Z axis end
                             
                             std::vector<cv::Point2f> imagePoints;  //Recibe el vector transformado
                             cv::projectPoints(axis, rvec, tvec, cameraMatrix, distCoeffs, imagePoints);
@@ -340,7 +348,7 @@ int main(int ac, char* av[]){
         po::notify(vm);
 
         if(vm.count("help")){
-            std::cout << "Spacebar -> Capture reference image\nEsc      -> Exit program\nm        -> Display matches\nh        -> Display object detection\na        -> Display Axis" << "\n";
+            std::cout << "Spacebar -> Capture reference image\nEsc      -> Exit program\nm        -> Toggle matches\nh        -> Toggle object detection\na        -> Toggle Axis\no\t -> Increase Axis Size\nl\t -> Decrease Axis Size\n";
             return 0;
         }
         else if(vm.count("display")){
