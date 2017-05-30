@@ -1,6 +1,8 @@
 #include <iostream>
 #include <string>
 
+//USED for time measurement
+#include <chrono>
 
 //Used for interaction with the user
 #include <boost/program_options.hpp>
@@ -21,13 +23,14 @@ namespace po = boost::program_options;
  *@param cameraMatrix pointer to the camara Matrix to recieve the new data
  *@param distCoeffs pointer to the matrix that will hold the distortion Coefficients
 */
-void readConfigParams(std::string *method, std::string *matcher){
+void readConfigParams(std::string *method, std::string *matcher, bool* calibrate){
         cv::FileStorage fs( "../config.cfg", cv::FileStorage::READ );
         
         if(fs.isOpened()){
             fs["method" ] >> *method;
             fs["matcher"] >> *matcher;
-            //TODO other parameters can be added
+            fs["calibrate"] >> *calibrate;
+            //TODO other parameters can be added here
             fs.release();
         }
         else{
@@ -37,6 +40,8 @@ void readConfigParams(std::string *method, std::string *matcher){
             *method = "ORB";
             fs << "matcher"    << "FLANN";
             *matcher = "FLANN";
+            fs << "calibrate"    << false;
+            *calibrate = false;
         }
 }
 
@@ -58,10 +63,7 @@ void readCalibrationParams(cv::Mat *cameraMatrix, cv::Mat *distCoeffs){
 */
 void display(){
     cv::Mat cameraMatrix, distCoeffs;
-    
-    //Reads data from the calibration
-    readCalibrationParams(&cameraMatrix, &distCoeffs);
-    
+        
     //Open the default camera
     cv::VideoCapture cap(0); 
     
@@ -76,9 +78,15 @@ void display(){
     
     std::string which_method;
     std::string which_matcher;
+    bool calibrate;
     
     //Read config parameters
-    readConfigParams(&which_method, &which_matcher);
+    readConfigParams(&which_method, &which_matcher, &calibrate);
+    
+    if(calibrate){
+        //Reads data from the calibration
+        readCalibrationParams(&cameraMatrix, &distCoeffs);
+    }
 
     if(     which_method ==   "SURF") {
         detectorANDextractor = new cv::SURF();
@@ -124,18 +132,24 @@ void display(){
     float axis_length = 200.0;
     
     cv::Mat distorted_frame;
+
+
     
     for(;;){
         // get a new frame from camera
-        cap >> distorted_frame; 
-        cap >> frame; 
-        
-        //Transforms frame to compensate for lens distortion based on the calibration matrixes
-        cv::undistort(distorted_frame, frame, cameraMatrix, distCoeffs);
+        //This variable is changed from the configuration file
+        if(calibrate){
+            cap >> distorted_frame; 
+            //Transforms frame to compensate for lens distortion based on the calibration matrixes
+            cv::undistort(distorted_frame, frame, cameraMatrix, distCoeffs);
+        }
+        else{
+            cap >> frame;
+        }
 
         //If space bar is pressed it creates the descriptors for the selected image
         int pressed_key = cv::waitKey(1);
-        if(pressed_key == 32){//Spacebar   
+        if(pressed_key == 32){//Spacebar
             //Takes the keypoints from the image and saves them in the structure
             detectorANDextractor->detect(frame, reference_keypoints);         
             
@@ -148,6 +162,7 @@ void display(){
             //Indicates the program that it can start comparing both images
             tracking = true;
             
+            //Only display the new frame
             frame.copyTo(reference_img);
             cv::destroyWindow("video");
         }
@@ -191,11 +206,6 @@ void display(){
             if(axis_length > 20)
                 axis_length = axis_length - 20;
         }
-        //Used to test new keys
-        else{
-            if(pressed_key != -1)
-                std::cout << pressed_key << std::endl;
-        }
         
         //Compares the taken image against the image that is currently displayed
         if(tracking){
@@ -214,6 +224,7 @@ void display(){
                 img_descriptor.convertTo(img_descriptor, CV_32F);
                 traking_descriptor.convertTo(traking_descriptor, CV_32F);
             }
+
         
             //Stores the matches
             std::vector< cv::DMatch > matches;           
@@ -222,7 +233,7 @@ void display(){
             std::vector< cv::DMatch > good_matches;
             
             //Matches the detected descriptors with the saved descriptors
-            matcher->match(traking_descriptor, img_descriptor,  matches);           
+            matcher->match(traking_descriptor, img_descriptor,  matches);
             
             double max_dist = 0; double min_dist = 10000;
             
@@ -233,25 +244,28 @@ void display(){
                 if( dist > max_dist ) max_dist = dist;
             }
 
-
+            //Only get the descriptors that are no more than 3 times bigger than the smaller one, but not bigger than half the largerst
+            //This is to compensate for the different algorithms
             for( int i = 0; i < traking_descriptor.rows; i++ ){
                 if( matches[i].distance < std::min(3*min_dist, max_dist/2) ){
                     good_matches.push_back( matches[i]);
                 }
             }
             
-            
+            //Get size to build new image
             cv::Size sz1 = reference_img.size();
 
+            //Build new image, reference image next to the video
             cv::Mat img_matches(sz1.height, sz1.width+sz1.width, CV_8UC3);            
-            
             cv::Mat left(img_matches, cv::Rect(0, 0, sz1.width, sz1.height));
             reference_img.copyTo(left);
             cv::Mat right(img_matches, cv::Rect(sz1.width, 0, sz1.width, sz1.height));
             frame.copyTo(right);
             
             //Only display matches is there are more than 5
-            if(good_matches.size() > 10){
+            if(good_matches.size() > 5){
+            
+                //Display lines between the matches in both images
                 if(show_matches){
                     cv::drawMatches(reference_img, reference_keypoints, frame, scene_keypoints, good_matches, img_matches, cv::Scalar::all(-1), cv::Scalar::all(-1), std::vector< char >(), cv::DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS  );
                 }
@@ -261,7 +275,10 @@ void display(){
                 std::vector<cv::Point2f> obj;
                 std::vector<cv::Point2f> scene;
                 
+                //This comparition is made in order to calculate homography
                 if(show_homography  || show_axis){
+                
+                    //Get reference points for the object an the new perspective of the object
                     for( int i = 0; i < good_matches.size(); i++ ){
                         //-- Get the keypoints from the good matches
                         obj.push_back( reference_keypoints[ good_matches[i].queryIdx ].pt );
@@ -303,7 +320,7 @@ void display(){
                             obj_3D.push_back(cv::Point3f(obj_corners[i].x, obj_corners[i].y, 0));  
                         }
                         
-                        
+                        //Solve PnP based on the homography
                         bool solved = cv::solvePnP(obj_3D, scene_corners, cameraMatrix, distCoeffs, rvec, tvec);
                         if (solved){
                             std::vector<cv::Point3f> axis;//Vector de Vectores que describe como se debería ver el espacio
